@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+export type ModuleId = "terminal" | "files" | "web";
+
 export type Tab = {
   id: string;
   title: string;
@@ -8,6 +10,16 @@ export type Tab = {
   kind: "shell" | "claude";
   sessionId?: string;
 };
+
+type ModuleState = {
+  activeModule: ModuleId;
+  setModule: (m: ModuleId) => void;
+};
+
+export const useModule = create<ModuleState>((set) => ({
+  activeModule: "terminal",
+  setModule: (m) => set({ activeModule: m }),
+}));
 
 type TabsState = {
   tabs: Tab[];
