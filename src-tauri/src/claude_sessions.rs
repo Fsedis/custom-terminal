@@ -163,6 +163,43 @@ pub fn read_claude_session_events(file: String) -> Result<Vec<SessionEvent>, Str
 }
 
 #[tauri::command]
+pub fn delete_claude_session(file: String) -> Result<(), String> {
+    let path = PathBuf::from(&file);
+    let base = claude_projects_dir().ok_or("no home dir")?;
+    if !path.starts_with(&base) {
+        return Err("refusing: path outside ~/.claude/projects".into());
+    }
+    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return Err("refusing: not a .jsonl file".into());
+    }
+    fs::remove_file(&path).map_err(|e| e.to_string())?;
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    if !stem.is_empty() {
+        if let Some(parent) = path.parent() {
+            let sidecar = parent.join(stem);
+            if sidecar.is_dir() {
+                let _ = fs::remove_dir_all(&sidecar);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_claude_project(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let base = claude_projects_dir().ok_or("no home dir")?;
+    if !p.starts_with(&base) || p == base {
+        return Err("refusing: path outside ~/.claude/projects".into());
+    }
+    if !p.is_dir() {
+        return Err("not a directory".into());
+    }
+    fs::remove_dir_all(&p).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn resolve_session_file(cwd: String, session_id: String) -> Result<String, String> {
     let dir = claude_projects_dir().ok_or("no home dir")?;
     let encoded = cwd.replace('/', "-");

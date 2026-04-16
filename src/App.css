@@ -148,6 +148,159 @@ html, body, #root {
   position: relative;
 }
 
+/* ---------- Confirm dialog ---------- */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: confirm-fade 120ms ease-out;
+}
+
+@keyframes confirm-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.confirm-panel {
+  background: #17181c;
+  color: #e8eaee;
+  border: 1px solid #2a2d35;
+  border-radius: 8px;
+  min-width: 340px;
+  max-width: 480px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: confirm-pop 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+}
+
+@keyframes confirm-pop {
+  from { transform: translateY(4px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.confirm-title {
+  padding: 14px 16px 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.confirm-msg {
+  padding: 0 16px 16px;
+  font-size: 12px;
+  color: #b8bcc4;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #121317;
+  border-top: 1px solid #1f2127;
+}
+
+.confirm-btn {
+  background: #2a2d35;
+  color: #dcdee3;
+  border: 1px solid #353840;
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.confirm-btn:hover { background: #353840; }
+
+.confirm-primary {
+  background: #3b6fd6;
+  border-color: #4a7fe6;
+  color: #fff;
+}
+.confirm-primary:hover { background: #4a7fe6; }
+
+.confirm-danger {
+  background: #a03a3a;
+  border-color: #c04848;
+  color: #fff;
+}
+.confirm-danger:hover { background: #c04848; }
+
+.confirm-btn:focus {
+  outline: 2px solid #4a7fe6;
+  outline-offset: 1px;
+}
+
+/* ---------- Sidebar hover actions ---------- */
+
+.sb-hover-btn {
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.sb-project:hover .sb-hover-btn,
+.sb-session:hover .sb-hover-btn {
+  opacity: 0.7;
+}
+
+.sb-hover-btn:hover {
+  opacity: 1 !important;
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.sb-hover-btn.sb-del:hover {
+  background: #4a1f1f;
+  color: #ff8a8a;
+}
+
+.sb-session:hover {
+  background: #1a1a1a;
+}
+
+.sb-project > div:first-child:hover {
+  background: #1a1a1a;
+}
+
+/* ---------- Collapsed sidebar rail ---------- */
+
+.sidebar-collapsed {
+  width: 20px;
+  flex-shrink: 0;
+  background: #0f0f0f;
+  border-right: 1px solid #232323;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 10px;
+}
+
+.sidebar-collapse-btn {
+  background: #1a1a1a;
+  color: #888;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  width: 16px;
+  height: 40px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebar-collapse-btn:hover {
+  background: #232323;
+  color: #fff;
+}
+
 /* ---------- Left sidebar (projects) ---------- */
 
 .sidebar {

@@ -50,6 +50,44 @@ export const useSidePanel = create<SidePanelState>((set) => ({
   setOpen: (v) => set({ open: v }),
 }));
 
+type SidebarState = {
+  collapsed: boolean;
+  toggle: () => void;
+};
+
+export const useSidebar = create<SidebarState>((set) => ({
+  collapsed: false,
+  toggle: () => set((s) => ({ collapsed: !s.collapsed })),
+}));
+
+export type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+};
+
+type ConfirmState = {
+  request: ConfirmRequest | null;
+  resolver: ((ok: boolean) => void) | null;
+  ask: (req: ConfirmRequest) => Promise<boolean>;
+  resolve: (ok: boolean) => void;
+};
+
+export const useConfirm = create<ConfirmState>((set, get) => ({
+  request: null,
+  resolver: null,
+  ask: (req) =>
+    new Promise<boolean>((resolve) => {
+      set({ request: req, resolver: resolve });
+    }),
+  resolve: (ok) => {
+    const r = get().resolver;
+    set({ request: null, resolver: null });
+    r?.(ok);
+  },
+}));
+
 type TabsState = {
   tabs: Tab[];
   activeId: string | null;

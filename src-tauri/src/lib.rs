@@ -20,6 +20,8 @@ pub fn run() {
             claude_sessions::read_claude_session_events,
             claude_sessions::fork_claude_session,
             claude_sessions::resolve_session_file,
+            claude_sessions::delete_claude_session,
+            claude_sessions::delete_claude_project,
             browser::browser_create,
             browser::browser_navigate,
             browser::browser_resize,

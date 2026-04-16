@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { usePreview, useTabs } from "./store";
+import { useConfirm, usePreview, useSidebar, useTabs } from "./store";
 
 type ClaudeSession = {
   id: string;
@@ -17,7 +17,6 @@ type ClaudeProject = {
 };
 
 function decodeProjectPath(name: string): string {
-  // ~/.claude/projects/-Users-foo-bar → /Users/foo/bar
   if (name.startsWith("-")) return name.replace(/-/g, "/").replace(/^\//, "/");
   return name;
 }
@@ -32,12 +31,19 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const addTab = useTabs((s) => s.addTab);
   const setPreview = usePreview((s) => s.setPreview);
+  const collapsed = useSidebar((s) => s.collapsed);
+  const toggleCollapsed = useSidebar((s) => s.toggle);
+  const askConfirm = useConfirm((s) => s.ask);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     invoke<ClaudeProject[]>("list_claude_projects")
       .then(setProjects)
       .catch(() => setProjects([]));
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const openShell = (cwd: string) => {
     addTab({
@@ -67,22 +73,88 @@ export function Sidebar() {
     });
   };
 
+  const deleteSession = async (s: ClaudeSession) => {
+    const label = s.first_message
+      ? s.first_message.slice(0, 80)
+      : s.id.slice(0, 8);
+    const ok = await askConfirm({
+      title: "Delete session?",
+      message: `${label}\n\nThis cannot be undone.`,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await invoke("delete_claude_session", { file: s.file });
+      reload();
+    } catch (e) {
+      await askConfirm({
+        title: "Failed to delete",
+        message: String(e),
+        confirmLabel: "OK",
+      });
+    }
+  };
+
+  const deleteProject = async (p: ClaudeProject, cwd: string) => {
+    const ok = await askConfirm({
+      title: "Delete project?",
+      message: `${shortName(cwd)}\n\nAll ${p.sessions.length} session(s) will be removed. This cannot be undone.`,
+      confirmLabel: "Delete all",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await invoke("delete_claude_project", { path: p.path });
+      reload();
+    } catch (e) {
+      await askConfirm({
+        title: "Failed to delete",
+        message: String(e),
+        confirmLabel: "OK",
+      });
+    }
+  };
+
+  if (collapsed) {
+    return (
+      <div className="sidebar-collapsed">
+        <button
+          className="sidebar-collapse-btn"
+          onClick={toggleCollapsed}
+          title="Show projects"
+        >
+          ›
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
-        <span>Projects</span>
-        <button
-          style={styles.newBtn}
-          onClick={() =>
-            addTab({
-              id: crypto.randomUUID(),
-              title: "shell",
-              kind: "shell",
-            })
-          }
-        >
-          + shell
-        </button>
+        <span style={styles.headerTitle}>Projects</span>
+        <div style={styles.headerActions}>
+          <button
+            style={styles.newBtn}
+            onClick={() =>
+              addTab({
+                id: crypto.randomUUID(),
+                title: "shell",
+                kind: "shell",
+              })
+            }
+          >
+            + shell
+          </button>
+          <button
+            style={styles.collapseBtn}
+            onClick={toggleCollapsed}
+            title="Hide sidebar"
+          >
+            ‹
+          </button>
+        </div>
       </div>
       <div style={styles.list}>
         {projects.length === 0 && (
@@ -92,7 +164,7 @@ export function Sidebar() {
           const cwd = decodeProjectPath(p.name);
           const isOpen = expanded[p.name] ?? false;
           return (
-            <div key={p.name} style={styles.project}>
+            <div key={p.name} className="sb-project" style={styles.project}>
               <div
                 style={styles.projectHeader}
                 onClick={() =>
@@ -104,7 +176,8 @@ export function Sidebar() {
                   {shortName(cwd)}
                 </span>
                 <span
-                  style={styles.plus}
+                  className="sb-hover-btn"
+                  style={styles.iconBtn}
                   onClick={(e) => {
                     e.stopPropagation();
                     openShell(cwd);
@@ -113,12 +186,24 @@ export function Sidebar() {
                 >
                   +
                 </span>
+                <span
+                  className="sb-hover-btn sb-del"
+                  style={styles.iconBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteProject(p, cwd);
+                  }}
+                  title="delete project"
+                >
+                  ×
+                </span>
               </div>
               {isOpen && (
                 <div style={styles.sessions}>
                   {p.sessions.slice(0, 20).map((s) => (
                     <div
                       key={s.id}
+                      className="sb-session"
                       style={styles.session}
                       title={s.first_message ?? s.id}
                       onClick={() => previewSession(s, cwd)}
@@ -132,7 +217,8 @@ export function Sidebar() {
                           : s.id.slice(0, 8)}
                       </span>
                       <span
-                        style={styles.resumeBtn}
+                        className="sb-hover-btn"
+                        style={styles.sessionIcon}
                         title="resume in new tab"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -140,6 +226,17 @@ export function Sidebar() {
                         }}
                       >
                         ▶
+                      </span>
+                      <span
+                        className="sb-hover-btn sb-del"
+                        style={styles.sessionIcon}
+                        title="delete session"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteSession(s);
+                        }}
+                      >
+                        ×
                       </span>
                     </div>
                   ))}
@@ -166,6 +263,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     borderRight: "1px solid #2a2a2a",
     height: "100%",
+    flexShrink: 0,
   },
   header: {
     padding: "8px 10px",
@@ -174,7 +272,10 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 6,
   },
+  headerTitle: { flex: 1 },
+  headerActions: { display: "flex", gap: 4, alignItems: "center" },
   newBtn: {
     background: "#2a2a2a",
     color: "#ddd",
@@ -183,6 +284,18 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 3,
     cursor: "pointer",
     fontSize: 11,
+  },
+  collapseBtn: {
+    background: "transparent",
+    color: "#888",
+    border: "1px solid #2a2a2a",
+    borderRadius: 3,
+    width: 20,
+    height: 20,
+    cursor: "pointer",
+    fontSize: 13,
+    lineHeight: 1,
+    padding: 0,
   },
   list: { overflowY: "auto", flex: 1 },
   empty: { padding: 10, color: "#666", fontSize: 11 },
@@ -202,10 +315,13 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  plus: {
+  iconBtn: {
     color: "#777",
-    padding: "0 4px",
+    padding: "0 5px",
     cursor: "pointer",
+    fontSize: 13,
+    lineHeight: 1,
+    borderRadius: 3,
   },
   sessions: { paddingLeft: 20, paddingBottom: 4 },
   session: {
@@ -214,7 +330,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#aaa",
     display: "flex",
     alignItems: "center",
-    gap: 4,
+    gap: 2,
   },
   sessionText: {
     flex: 1,
@@ -222,9 +338,12 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  resumeBtn: {
+  sessionIcon: {
     color: "#666",
-    padding: "0 4px",
-    fontSize: 10,
+    padding: "0 5px",
+    fontSize: 11,
+    cursor: "pointer",
+    lineHeight: 1,
+    borderRadius: 3,
   },
 };

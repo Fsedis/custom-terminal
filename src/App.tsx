@@ -6,6 +6,7 @@ import { ModuleRail } from "./ModuleRail";
 import { Browser } from "./Browser";
 import { SessionTimeline } from "./SessionTimeline";
 import { SessionSidePanel } from "./SessionSidePanel";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useTabs, useModule } from "./store";
 import "./App.css";
 
@@ -63,6 +64,7 @@ function App() {
         </div>
         <ModuleRail />
       </div>
+      <ConfirmDialog />
     </div>
   );
 }
