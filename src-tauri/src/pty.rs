@@ -95,18 +95,46 @@ pub fn pty_spawn(
     let app_for_thread = app.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let mut carry: Vec<u8> = Vec::with_capacity(4);
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_for_thread.emit(
-                        "pty://data",
-                        DataEvent {
-                            id: id_for_thread.clone(),
-                            data,
-                        },
-                    );
+                    let mut chunk: Vec<u8> =
+                        Vec::with_capacity(carry.len() + n);
+                    chunk.extend_from_slice(&carry);
+                    chunk.extend_from_slice(&buf[..n]);
+                    carry.clear();
+
+                    let (good_upto, keep_tail) = match std::str::from_utf8(&chunk) {
+                        Ok(_) => (chunk.len(), false),
+                        Err(e) => {
+                            let vu = e.valid_up_to();
+                            let tail = chunk.len() - vu;
+                            // Only defer if it's a plausibly incomplete sequence
+                            // (UTF-8 is at most 4 bytes). Otherwise treat as invalid.
+                            if tail <= 3 && e.error_len().is_none() {
+                                (vu, true)
+                            } else {
+                                (chunk.len(), false)
+                            }
+                        }
+                    };
+
+                    if keep_tail {
+                        carry.extend_from_slice(&chunk[good_upto..]);
+                    }
+                    let data =
+                        String::from_utf8_lossy(&chunk[..good_upto]).to_string();
+                    if !data.is_empty() {
+                        let _ = app_for_thread.emit(
+                            "pty://data",
+                            DataEvent {
+                                id: id_for_thread.clone(),
+                                data,
+                            },
+                        );
+                    }
                 }
                 Err(_) => break,
             }

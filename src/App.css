@@ -212,9 +212,17 @@ html, body, #root {
   position: absolute;
   inset: 0;
   background: #1a1a1a;
+  display: flex;
+  min-width: 0;
 }
 
-.terminal-area > div {
+.terminal-stack {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.terminal-stack > div {
   position: absolute;
   inset: 0;
 }

@@ -21,6 +21,35 @@ export const useModule = create<ModuleState>((set) => ({
   setModule: (m) => set({ activeModule: m }),
 }));
 
+export type PreviewSession = {
+  file: string;
+  sessionId: string;
+  cwd: string;
+  title: string;
+};
+
+type PreviewState = {
+  preview: PreviewSession | null;
+  setPreview: (p: PreviewSession | null) => void;
+};
+
+export const usePreview = create<PreviewState>((set) => ({
+  preview: null,
+  setPreview: (p) => set({ preview: p }),
+}));
+
+type SidePanelState = {
+  open: boolean;
+  toggle: () => void;
+  setOpen: (v: boolean) => void;
+};
+
+export const useSidePanel = create<SidePanelState>((set) => ({
+  open: true,
+  toggle: () => set((s) => ({ open: !s.open })),
+  setOpen: (v) => set({ open: v }),
+}));
+
 type TabsState = {
   tabs: Tab[];
   activeId: string | null;

@@ -1,0 +1,301 @@
+.ssp {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-shrink: 0;
+  transition: width 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: linear-gradient(180deg, #121317 0%, #0e0f12 100%);
+  border-left: 1px solid #1f2127;
+  color: #dcdee3;
+  font-size: 12px;
+}
+
+.ssp-open { width: 340px; }
+.ssp-closed { width: 18px; }
+
+.ssp-toggle {
+  position: absolute;
+  left: -10px;
+  top: 16px;
+  width: 20px;
+  height: 44px;
+  border-radius: 10px;
+  background: #1a1c22;
+  color: #9aa0aa;
+  border: 1px solid #2a2d35;
+  cursor: pointer;
+  z-index: 2;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+
+.ssp-toggle:hover {
+  background: #232730;
+  color: #fff;
+  transform: scale(1.05);
+}
+
+.ssp-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  animation: ssp-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes ssp-slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.ssp-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #1e2026;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #16181d 0%, #121317 100%);
+}
+
+.ssp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: #e8eaee;
+  text-transform: uppercase;
+}
+
+.ssp-dot-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 8px #4ade80aa;
+  animation: ssp-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ssp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.ssp-sub {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: #6b7280;
+  font-family: "SF Mono", monospace;
+}
+
+.ssp-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px 40px;
+  scrollbar-width: thin;
+  scrollbar-color: #2a2d35 transparent;
+}
+
+.ssp-scroll::-webkit-scrollbar { width: 6px; }
+.ssp-scroll::-webkit-scrollbar-track { background: transparent; }
+.ssp-scroll::-webkit-scrollbar-thumb {
+  background: #2a2d35;
+  border-radius: 3px;
+}
+.ssp-scroll::-webkit-scrollbar-thumb:hover { background: #3a3d45; }
+
+.ssp-empty, .ssp-err {
+  padding: 20px 12px;
+  color: #6b7280;
+  font-size: 11.5px;
+  text-align: center;
+}
+.ssp-err { color: #f87171; }
+
+.ssp-row {
+  display: flex;
+  gap: 10px;
+  position: relative;
+  padding: 4px 0;
+}
+
+.ssp-row.ssp-new .ssp-dot {
+  animation: ssp-dot-flash 1.2s ease-out;
+}
+
+@keyframes ssp-dot-flash {
+  0% { box-shadow: 0 0 0 0 #7fbfff88; transform: scale(1.4); }
+  100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+}
+
+.ssp-gutter {
+  width: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  flex-shrink: 0;
+}
+
+.ssp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: box-shadow 0.2s, transform 0.2s;
+  z-index: 1;
+}
+
+.ssp-user .ssp-dot {
+  background: #6aa8ff;
+  box-shadow: 0 0 0 2px #6aa8ff22;
+}
+
+.ssp-assistant .ssp-dot {
+  background: #b88bff;
+  box-shadow: 0 0 0 2px #b88bff22;
+}
+
+.ssp-dot-fork {
+  outline: 2px solid #ffb86b;
+  outline-offset: 1px;
+}
+
+.ssp-line {
+  width: 1px;
+  flex: 1;
+  background: linear-gradient(180deg, #2a2d35, #1a1c22);
+  margin-top: 3px;
+  min-height: 14px;
+}
+
+.ssp-content {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0 12px;
+  position: relative;
+}
+
+.ssp-row:hover .ssp-content {
+  background: linear-gradient(90deg, #181a1f 0%, transparent 100%);
+  border-radius: 6px;
+}
+
+.ssp-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #8b92a0;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.ssp-role {
+  color: #cfd3dc;
+  font-weight: 600;
+  text-transform: lowercase;
+  font-family: "SF Mono", monospace;
+}
+
+.ssp-user .ssp-role { color: #6aa8ff; }
+.ssp-assistant .ssp-role { color: #b88bff; }
+
+.ssp-tool {
+  font-family: "SF Mono", monospace;
+  font-size: 10px;
+  color: #9aa0aa;
+  background: #1c1f26;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid #252830;
+}
+
+.ssp-ts {
+  margin-left: auto;
+  color: #4b515c;
+  font-family: "SF Mono", monospace;
+  font-size: 10px;
+}
+
+.ssp-tag {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.ssp-tag-branch {
+  color: #ffb86b;
+  background: #3a2a1222;
+  border: 1px solid #5a4a2a;
+}
+
+.ssp-tag-fork {
+  color: #1a1a1a;
+  background: linear-gradient(180deg, #ffc88b, #ffb86b);
+}
+
+.ssp-tag-side {
+  color: #8b92a0;
+  background: #1c1f26;
+  border: 1px solid #252830;
+}
+
+.ssp-preview {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c8ccd4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 88px;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+}
+
+.ssp-dim { color: #4b515c; font-style: italic; }
+
+.ssp-fork-btn {
+  position: absolute;
+  right: 0;
+  top: 2px;
+  background: linear-gradient(180deg, #2a2d35, #1e2028);
+  color: #dcdee3;
+  border: 1px solid #3a3d45;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-family: "SF Mono", monospace;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 0.15s, transform 0.15s, background 0.15s, border-color 0.15s;
+  pointer-events: none;
+  letter-spacing: 0.3px;
+}
+
+.ssp-row:hover .ssp-fork-btn {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.ssp-fork-btn:hover {
+  background: linear-gradient(180deg, #3a6fd6, #2a5fc6);
+  border-color: #4a7fe6;
+  color: #fff;
+}
+
+.ssp-fork-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed;
+}

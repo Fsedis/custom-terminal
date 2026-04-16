@@ -4,6 +4,8 @@ import { Terminal } from "./Terminal";
 import { TitleBar } from "./TitleBar";
 import { ModuleRail } from "./ModuleRail";
 import { Browser } from "./Browser";
+import { SessionTimeline } from "./SessionTimeline";
+import { SessionSidePanel } from "./SessionSidePanel";
 import { useTabs, useModule } from "./store";
 import "./App.css";
 
@@ -34,26 +36,30 @@ function App() {
         <div className="main">
           {activeModule === "terminal" && (
             <div className="terminal-area">
-              {tabs.map((t) => (
-                <Terminal
-                  key={t.id}
-                  tabId={t.id}
-                  cwd={t.cwd}
-                  command={
-                    t.kind === "claude" && t.sessionId
-                      ? {
-                          shell: "claude",
-                          args: ["--resume", t.sessionId],
-                        }
-                      : undefined
-                  }
-                  active={t.id === activeId}
-                />
-              ))}
+              <div className="terminal-stack">
+                {tabs.map((t) => (
+                  <Terminal
+                    key={t.id}
+                    tabId={t.id}
+                    cwd={t.cwd}
+                    command={
+                      t.kind === "claude" && t.sessionId
+                        ? {
+                            shell: "claude",
+                            args: ["--resume", t.sessionId],
+                          }
+                        : undefined
+                    }
+                    active={t.id === activeId}
+                  />
+                ))}
+              </div>
+              <SessionSidePanel />
             </div>
           )}
           {activeModule === "web" && <Browser />}
           {activeModule === "files" && <ModulePlaceholder name="files" />}
+          <SessionTimeline />
         </div>
         <ModuleRail />
       </div>

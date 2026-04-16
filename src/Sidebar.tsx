@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useTabs } from "./store";
+import { usePreview, useTabs } from "./store";
 
 type ClaudeSession = {
   id: string;
@@ -31,6 +31,7 @@ export function Sidebar() {
   const [projects, setProjects] = useState<ClaudeProject[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const addTab = useTabs((s) => s.addTab);
+  const setPreview = usePreview((s) => s.setPreview);
 
   useEffect(() => {
     invoke<ClaudeProject[]>("list_claude_projects")
@@ -54,6 +55,15 @@ export function Sidebar() {
       cwd,
       kind: "claude",
       sessionId,
+    });
+  };
+
+  const previewSession = (s: ClaudeSession, fallbackCwd: string) => {
+    setPreview({
+      file: s.file,
+      sessionId: s.id,
+      cwd: s.cwd ?? fallbackCwd,
+      title: s.first_message ?? s.id,
     });
   };
 
@@ -111,11 +121,26 @@ export function Sidebar() {
                       key={s.id}
                       style={styles.session}
                       title={s.first_message ?? s.id}
-                      onClick={() => openClaudeSession(s.cwd ?? cwd, s.id)}
+                      onClick={() => previewSession(s, cwd)}
+                      onDoubleClick={() =>
+                        openClaudeSession(s.cwd ?? cwd, s.id)
+                      }
                     >
-                      {s.first_message
-                        ? s.first_message.slice(0, 40)
-                        : s.id.slice(0, 8)}
+                      <span style={styles.sessionText}>
+                        {s.first_message
+                          ? s.first_message.slice(0, 40)
+                          : s.id.slice(0, 8)}
+                      </span>
+                      <span
+                        style={styles.resumeBtn}
+                        title="resume in new tab"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openClaudeSession(s.cwd ?? cwd, s.id);
+                        }}
+                      >
+                        ▶
+                      </span>
                     </div>
                   ))}
                   {p.sessions.length === 0 && (
@@ -186,9 +211,20 @@ const styles: Record<string, React.CSSProperties> = {
   session: {
     padding: "3px 8px",
     cursor: "pointer",
+    color: "#aaa",
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  sessionText: {
+    flex: 1,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    color: "#aaa",
+  },
+  resumeBtn: {
+    color: "#666",
+    padding: "0 4px",
+    fontSize: 10,
   },
 };
