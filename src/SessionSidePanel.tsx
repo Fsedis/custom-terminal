@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabs, useSidePanel } from "./store";
 import { Icon } from "./icons";
+import { fetchSessionUsage, SessionUsage, shortModel } from "./usage";
+import { formatCost, formatTokens } from "./utils";
+import { findLeaf, firstLeaf } from "./panes";
 import "./SessionSidePanel.css";
 
 type SessionEvent = {
@@ -22,39 +25,48 @@ function formatTime(ts: string | null): string {
 }
 
 export function SessionSidePanel() {
-  const { tabs, activeId, addTab } = useTabs();
+  const { tabs, activeTabId, addTab } = useTabs();
   const open = useSidePanel((s) => s.open);
   const toggle = useSidePanel((s) => s.toggle);
 
-  const tab = tabs.find((t) => t.id === activeId);
-  const isClaude = tab?.kind === "claude" && tab.sessionId && tab.cwd;
+  const tab = tabs.find((t) => t.id === activeTabId);
+  const activeLeaf = tab
+    ? (findLeaf(tab.root, tab.activeLeafId) ?? firstLeaf(tab.root))
+    : null;
+  const isClaude =
+    !!activeLeaf &&
+    activeLeaf.shell === "claude" &&
+    !!activeLeaf.sessionId &&
+    !!activeLeaf.cwd;
 
   const [file, setFile] = useState<string | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [newSince, setNewSince] = useState<Set<string>>(new Set());
+  const [usage, setUsage] = useState<SessionUsage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(0);
   const prevTabIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isClaude) {
+    if (!isClaude || !activeLeaf) {
       setFile(null);
       setEvents([]);
       setErr(null);
       return;
     }
-    if (prevTabIdRef.current !== tab!.id) {
-      prevTabIdRef.current = tab!.id;
+    const key = `${tab!.id}:${activeLeaf.id}`;
+    if (prevTabIdRef.current !== key) {
+      prevTabIdRef.current = key;
       setEvents([]);
       prevCountRef.current = 0;
       setNewSince(new Set());
     }
     let cancelled = false;
     invoke<string>("resolve_session_file", {
-      cwd: tab!.cwd!,
-      sessionId: tab!.sessionId!,
+      cwd: activeLeaf.cwd!,
+      sessionId: activeLeaf.sessionId!,
     })
       .then((f) => {
         if (!cancelled) {
@@ -68,7 +80,7 @@ export function SessionSidePanel() {
     return () => {
       cancelled = true;
     };
-  }, [tab?.id, tab?.sessionId, tab?.cwd, isClaude]);
+  }, [tab?.id, activeLeaf?.id, activeLeaf?.sessionId, activeLeaf?.cwd, isClaude]);
 
   useEffect(() => {
     if (!file || !open) return;
@@ -113,6 +125,20 @@ export function SessionSidePanel() {
   }, [file, open]);
 
   useEffect(() => {
+    if (!file) {
+      setUsage(null);
+      return;
+    }
+    let cancelled = false;
+    fetchSessionUsage(file, events.length)
+      .then((u) => !cancelled && setUsage(u))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [file, events.length]);
+
+  useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const firstLoad = prevCountRef.current === 0 && events.length > 0;
@@ -148,7 +174,7 @@ export function SessionSidePanel() {
   }, [events]);
 
   const forkFrom = async (uuid: string) => {
-    if (!file || !tab) return;
+    if (!file || !activeLeaf) return;
     setBusy(true);
     try {
       const res = await invoke<{ session_id: string; file: string }>(
@@ -156,10 +182,9 @@ export function SessionSidePanel() {
         { file, uptoUuid: uuid },
       );
       addTab({
-        id: crypto.randomUUID(),
         title: `fork:${res.session_id.slice(0, 6)}`,
-        cwd: tab.cwd,
-        kind: "claude",
+        cwd: activeLeaf.cwd,
+        shell: "claude",
         sessionId: res.session_id,
       });
     } catch (e) {
@@ -188,8 +213,52 @@ export function SessionSidePanel() {
               session timeline
             </div>
             <div className="ssp-sub">
-              {tab!.sessionId!.slice(0, 8)} · {events.length} events
+              {activeLeaf!.sessionId!.slice(0, 8)} · {events.length} events
             </div>
+            {usage && usage.messages > 0 && (
+              <div className="ssp-usage">
+                <div className="ssp-usage-row">
+                  <span className="ssp-usage-cost">
+                    {formatCost(usage.cost_usd)}
+                  </span>
+                  <span className="ssp-usage-total">
+                    {formatTokens(
+                      usage.input +
+                        usage.output +
+                        usage.cache_write +
+                        usage.cache_read,
+                    )}{" "}
+                    tokens
+                  </span>
+                </div>
+                <div className="ssp-usage-grid">
+                  <span className="ssp-u-label">in</span>
+                  <span className="ssp-u-val">{formatTokens(usage.input)}</span>
+                  <span className="ssp-u-label">out</span>
+                  <span className="ssp-u-val">{formatTokens(usage.output)}</span>
+                  <span className="ssp-u-label">cache r</span>
+                  <span className="ssp-u-val">
+                    {formatTokens(usage.cache_read)}
+                  </span>
+                  <span className="ssp-u-label">cache w</span>
+                  <span className="ssp-u-val">
+                    {formatTokens(usage.cache_write)}
+                  </span>
+                </div>
+                {usage.by_model.length > 1 && (
+                  <div className="ssp-usage-models">
+                    {usage.by_model.map((m) => (
+                      <span key={m.model} className="ssp-usage-model">
+                        <span className="ssp-um-name">{shortModel(m.model)}</span>
+                        <span className="ssp-um-cost">
+                          {formatCost(m.cost_usd)}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="ssp-scroll" ref={scrollRef}>
             {err && <div className="ssp-err">{err}</div>}

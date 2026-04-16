@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Sidebar } from "./Sidebar";
-import { Terminal } from "./Terminal";
+import { PaneNode } from "./PaneNode";
 import { TitleBar } from "./TitleBar";
 import { ModuleRail } from "./ModuleRail";
 import { Browser } from "./Browser";
@@ -8,9 +8,32 @@ import { SessionTimeline } from "./SessionTimeline";
 import { SessionSidePanel } from "./SessionSidePanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Toasts } from "./Toasts";
-import { useTabs, useModule, useSidebar, useSidePanel } from "./store";
+import { ContextMenu } from "./ContextMenu";
+import { useTabs, useModule, useSidebar, useSidePanel, useToasts } from "./store";
 import { Icon } from "./icons";
+import { Pane } from "./panes";
+import { MIN_PANE_H, MIN_PANE_W } from "./PaneNode";
 import "./App.css";
+
+function countRootLeaves(p: Pane): number {
+  if (p.kind === "leaf") return 1;
+  return p.children.reduce((a, c) => a + countRootLeaves(c), 0);
+}
+
+function activeLeafRect(leafId: string): DOMRect | null {
+  const el = document.querySelector(
+    `.pane-leaf[data-leaf-id="${leafId}"]`,
+  ) as HTMLElement | null;
+  return el?.getBoundingClientRect() ?? null;
+}
+
+function canSplit(leafId: string, direction: "row" | "column"): boolean {
+  const r = activeLeafRect(leafId);
+  if (!r) return true;
+  return direction === "row"
+    ? r.width >= MIN_PANE_W * 2
+    : r.height >= MIN_PANE_H * 2;
+}
 
 function ModulePlaceholder({ name }: { name: string }) {
   return (
@@ -37,18 +60,39 @@ function TerminalEmptyState({ onNew }: { onNew: () => void }) {
 }
 
 function App() {
-  const { tabs, activeId, addTab, removeTab, setActive } = useTabs();
+  const {
+    tabs,
+    activeTabId,
+    addTab,
+    removeTab,
+    setActiveTab,
+    splitActive,
+    closeLeaf,
+    focusLeafDelta,
+  } = useTabs();
   const activeModule = useModule((s) => s.activeModule);
   const setModule = useModule((s) => s.setModule);
   const toggleSidebar = useSidebar((s) => s.toggle);
   const toggleSidePanel = useSidePanel((s) => s.toggle);
+  const pushToast = useToasts((s) => s.push);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+  useEffect(() => {
+    const onContext = (e: MouseEvent) => e.preventDefault();
+    window.addEventListener("contextmenu", onContext);
+    return () => window.removeEventListener("contextmenu", onContext);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       const target = e.target as HTMLElement | null;
+      const isXtermHelper =
+        target?.classList.contains("xterm-helper-textarea") ?? false;
       const isInput =
+        !isXtermHelper &&
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
@@ -57,18 +101,46 @@ function App() {
       // ⌘T new shell
       if (e.key.toLowerCase() === "t" && !e.shiftKey && !isInput) {
         e.preventDefault();
-        addTab({
-          id: crypto.randomUUID(),
-          title: "shell",
-          kind: "shell",
-        });
+        addTab({ title: "shell", shell: "shell" });
         return;
       }
-      // ⌘W close tab
+      // ⌘W close active pane (or tab if last pane)
       if (e.key.toLowerCase() === "w" && !isInput) {
-        if (activeId) {
+        if (activeTab) {
           e.preventDefault();
-          removeTab(activeId);
+          closeLeaf(activeTab.id, activeTab.activeLeafId);
+        }
+        return;
+      }
+      // ⌘D split vertical (side-by-side)
+      if (e.key.toLowerCase() === "d" && !e.shiftKey && !isInput) {
+        if (activeTab) {
+          e.preventDefault();
+          if (canSplit(activeTab.activeLeafId, "row")) {
+            splitActive(activeTab.id, "row");
+          } else {
+            pushToast({ kind: "error", text: "Not enough width to split" });
+          }
+        }
+        return;
+      }
+      // ⌘⇧D split horizontal (stacked)
+      if (e.key.toLowerCase() === "d" && e.shiftKey && !isInput) {
+        if (activeTab) {
+          e.preventDefault();
+          if (canSplit(activeTab.activeLeafId, "column")) {
+            splitActive(activeTab.id, "column");
+          } else {
+            pushToast({ kind: "error", text: "Not enough height to split" });
+          }
+        }
+        return;
+      }
+      // ⌘[ / ⌘] cycle panes within tab
+      if ((e.key === "[" || e.key === "]") && !isInput) {
+        if (activeTab) {
+          e.preventDefault();
+          focusLeafDelta(activeTab.id, e.key === "]" ? 1 : -1);
         }
         return;
       }
@@ -100,7 +172,7 @@ function App() {
         } else {
           if (i < tabs.length) {
             e.preventDefault();
-            setActive(tabs[i].id);
+            setActiveTab(tabs[i].id);
           }
         }
       }
@@ -109,13 +181,17 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [
     tabs,
-    activeId,
+    activeTab,
     addTab,
     removeTab,
-    setActive,
+    setActiveTab,
     setModule,
     toggleSidebar,
     toggleSidePanel,
+    splitActive,
+    closeLeaf,
+    focusLeafDelta,
+    pushToast,
   ]);
 
   return (
@@ -129,30 +205,22 @@ function App() {
               <div className="terminal-stack">
                 {tabs.length === 0 && (
                   <TerminalEmptyState
-                    onNew={() =>
-                      addTab({
-                        id: crypto.randomUUID(),
-                        title: "shell",
-                        kind: "shell",
-                      })
-                    }
+                    onNew={() => addTab({ title: "shell", shell: "shell" })}
                   />
                 )}
                 {tabs.map((t) => (
-                  <Terminal
+                  <div
                     key={t.id}
-                    tabId={t.id}
-                    cwd={t.cwd}
-                    command={
-                      t.kind === "claude" && t.sessionId
-                        ? {
-                            shell: "claude",
-                            args: ["--resume", t.sessionId],
-                          }
-                        : undefined
-                    }
-                    active={t.id === activeId}
-                  />
+                    className="tab-root"
+                    style={{ display: t.id === activeTabId ? "flex" : "none" }}
+                  >
+                    <PaneNode
+                      tabId={t.id}
+                      pane={t.root}
+                      activeLeafId={t.activeLeafId}
+                      siblingsCount={countRootLeaves(t.root)}
+                    />
+                  </div>
                 ))}
               </div>
               <SessionSidePanel />
@@ -166,6 +234,7 @@ function App() {
       </div>
       <ConfirmDialog />
       <Toasts />
+      <ContextMenu />
     </div>
   );
 }

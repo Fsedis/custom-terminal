@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   useConfirm,
+  useContextMenu,
   usePreview,
   useSidebar,
   useTabs,
   useToasts,
 } from "./store";
 import { Icon } from "./icons";
-import { relativeTime, shortBasename, timeBucket } from "./utils";
+import { formatCost, relativeTime, shortBasename, timeBucket } from "./utils";
+import { fetchProjectUsage, SessionCostEntry } from "./usage";
+import { collectLeaves } from "./panes";
 
 type ClaudeSession = {
   id: string;
@@ -34,6 +37,9 @@ export function Sidebar() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
+  const [projUsage, setProjUsage] = useState<
+    Record<string, Map<string, SessionCostEntry>>
+  >({});
 
   const addTab = useTabs((s) => s.addTab);
   const tabs = useTabs((s) => s.tabs);
@@ -42,6 +48,7 @@ export function Sidebar() {
   const toggleCollapsed = useSidebar((s) => s.toggle);
   const askConfirm = useConfirm((s) => s.ask);
   const pushToast = useToasts((s) => s.push);
+  const openMenu = useContextMenu((s) => s.open);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
@@ -56,21 +63,32 @@ export function Sidebar() {
     reload();
   }, [reload]);
 
+  const loadUsage = useCallback(
+    (p: ClaudeProject) => {
+      if (projUsage[p.path]) return;
+      const stamp = p.sessions.reduce((a, s) => a + s.mtime, 0);
+      fetchProjectUsage(p.path, stamp)
+        .then((map) =>
+          setProjUsage((u) => ({ ...u, [p.path]: map })),
+        )
+        .catch(() => {});
+    },
+    [projUsage],
+  );
+
   const openShell = (cwd?: string) => {
     addTab({
-      id: crypto.randomUUID(),
       title: cwd ? shortBasename(cwd) : "shell",
       cwd,
-      kind: "shell",
+      shell: "shell",
     });
   };
 
   const openClaudeSession = (cwd: string, sessionId: string) => {
     addTab({
-      id: crypto.randomUUID(),
       title: `claude:${sessionId.slice(0, 6)}`,
       cwd,
-      kind: "claude",
+      shell: "claude",
       sessionId,
     });
   };
@@ -121,10 +139,15 @@ export function Sidebar() {
     }
   };
 
-  const activeSessionIds = useMemo(
-    () => new Set(tabs.filter((t) => t.sessionId).map((t) => t.sessionId!)),
-    [tabs],
-  );
+  const activeSessionIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tabs) {
+      for (const l of collectLeaves(t.root)) {
+        if (l.sessionId) set.add(l.sessionId);
+      }
+    }
+    return set;
+  }, [tabs]);
 
   const filteredProjects = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -243,6 +266,13 @@ export function Sidebar() {
           const isOpen = expanded[p.name] ?? false;
           const top = p.sessions[0];
           const bucket = top ? timeBucket(top.mtime) : "Older";
+          const usageMap = projUsage[p.path];
+          const projTotal = usageMap
+            ? Array.from(usageMap.values()).reduce(
+                (a, s) => a + s.cost_usd,
+                0,
+              )
+            : 0;
           return (
             <div
               key={p.name}
@@ -250,9 +280,36 @@ export function Sidebar() {
             >
               <div
                 className="sb-project-header"
-                onClick={() =>
-                  setExpanded((s) => ({ ...s, [p.name]: !isOpen }))
-                }
+                onClick={() => {
+                  const next = !isOpen;
+                  setExpanded((s) => ({ ...s, [p.name]: next }));
+                  if (next) loadUsage(p);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openMenu(e.clientX, e.clientY, [
+                    {
+                      label: "New shell here",
+                      icon: "plus",
+                      onClick: () => openShell(cwd),
+                    },
+                    {
+                      label: "Copy path",
+                      icon: "copy",
+                      onClick: () => {
+                        navigator.clipboard.writeText(cwd);
+                        pushToast({ kind: "success", text: "Path copied" });
+                      },
+                    },
+                    { label: "", onClick: () => {}, separator: true },
+                    {
+                      label: "Delete project",
+                      icon: "close",
+                      danger: true,
+                      onClick: () => deleteProject(p, cwd),
+                    },
+                  ]);
+                }}
                 title={cwd}
               >
                 <span className="sb-chev">
@@ -260,6 +317,11 @@ export function Sidebar() {
                 </span>
                 <span className="sb-project-name">{shortBasename(cwd)}</span>
                 <span className="sb-bucket">{bucket}</span>
+                {projTotal > 0 && (
+                  <span className="sb-cost" title="Total spend">
+                    {formatCost(projTotal)}
+                  </span>
+                )}
                 <span className="sb-proj-count">{p.sessions.length}</span>
                 <button
                   className="sb-hover-btn sb-ghost"
@@ -286,6 +348,7 @@ export function Sidebar() {
                 <div className="sb-sessions">
                   {p.sessions.slice(0, 40).map((s) => {
                     const active = activeSessionIds.has(s.id);
+                    const cost = usageMap?.get(s.id)?.cost_usd ?? 0;
                     return (
                       <div
                         key={s.id}
@@ -295,6 +358,35 @@ export function Sidebar() {
                         onDoubleClick={() =>
                           openClaudeSession(s.cwd ?? cwd, s.id)
                         }
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          openMenu(e.clientX, e.clientY, [
+                            {
+                              label: "Resume in new tab",
+                              icon: "plus",
+                              onClick: () =>
+                                openClaudeSession(s.cwd ?? cwd, s.id),
+                            },
+                            {
+                              label: "Copy session id",
+                              icon: "copy",
+                              onClick: () => {
+                                navigator.clipboard.writeText(s.id);
+                                pushToast({
+                                  kind: "success",
+                                  text: "Session id copied",
+                                });
+                              },
+                            },
+                            { label: "", onClick: () => {}, separator: true },
+                            {
+                              label: "Delete session",
+                              icon: "close",
+                              danger: true,
+                              onClick: () => deleteSession(s),
+                            },
+                          ]);
+                        }}
                       >
                         <span className="sb-session-dot" />
                         <span className="sb-session-text">
@@ -302,6 +394,11 @@ export function Sidebar() {
                             ? s.first_message.slice(0, 60)
                             : s.id.slice(0, 8)}
                         </span>
+                        {cost > 0 && (
+                          <span className="sb-session-cost" title="Session cost">
+                            {formatCost(cost)}
+                          </span>
+                        )}
                         <span className="sb-session-time">
                           {relativeTime(s.mtime)}
                         </span>

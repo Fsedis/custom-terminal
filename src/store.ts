@@ -1,14 +1,22 @@
 import { create } from "zustand";
+import {
+  collectLeaves,
+  firstLeaf,
+  Leaf,
+  makeLeaf,
+  NewLeafInput,
+  Pane,
+  removeLeaf as removeLeafFromTree,
+  splitLeaf,
+  updateRatios,
+} from "./panes";
 
 export type ModuleId = "terminal" | "files" | "web";
 
 export type Tab = {
   id: string;
-  title: string;
-  ptyId?: string;
-  cwd?: string;
-  kind: "shell" | "claude";
-  sessionId?: string;
+  root: Pane;
+  activeLeafId: string;
 };
 
 type ModuleState = {
@@ -58,6 +66,37 @@ type SidebarState = {
 export const useSidebar = create<SidebarState>((set) => ({
   collapsed: false,
   toggle: () => set((s) => ({ collapsed: !s.collapsed })),
+}));
+
+type DragState = {
+  dragging: boolean;
+  setDragging: (v: boolean) => void;
+};
+
+export const usePaneDrag = create<DragState>((set) => ({
+  dragging: false,
+  setDragging: (v) => set({ dragging: v }),
+}));
+
+export type MenuItem = {
+  label: string;
+  onClick: () => void;
+  icon?: "edit" | "copy" | "close" | "plus" | "splitRight" | "splitDown";
+  danger?: boolean;
+  disabled?: boolean;
+  separator?: boolean;
+};
+
+type ContextMenuState = {
+  menu: { x: number; y: number; items: MenuItem[] } | null;
+  open: (x: number, y: number, items: MenuItem[]) => void;
+  close: () => void;
+};
+
+export const useContextMenu = create<ContextMenuState>((set) => ({
+  menu: null,
+  open: (x, y, items) => set({ menu: { x, y, items } }),
+  close: () => set({ menu: null }),
 }));
 
 export type ConfirmRequest = {
@@ -149,28 +188,147 @@ useSidePanel.subscribe((s) =>
 
 type TabsState = {
   tabs: Tab[];
-  activeId: string | null;
-  addTab: (tab: Tab) => void;
+  activeTabId: string | null;
+  addTab: (input: NewLeafInput) => string;
   removeTab: (id: string) => void;
-  setActive: (id: string) => void;
-  updateTab: (id: string, patch: Partial<Tab>) => void;
+  setActiveTab: (id: string) => void;
+  setActiveLeaf: (tabId: string, leafId: string) => void;
+  updateLeaf: (tabId: string, leafId: string, patch: Partial<Leaf>) => void;
+  splitActive: (tabId: string, direction: "row" | "column") => void;
+  closeLeaf: (tabId: string, leafId: string) => void;
+  setRatios: (tabId: string, splitId: string, ratios: number[]) => void;
+  focusLeafDelta: (tabId: string, delta: number) => void;
+  renameLeaf: (tabId: string, leafId: string, title: string) => void;
 };
+
+function tabFromLeaf(leaf: Leaf): Tab {
+  return { id: crypto.randomUUID(), root: leaf, activeLeafId: leaf.id };
+}
 
 export const useTabs = create<TabsState>((set, get) => ({
   tabs: [],
-  activeId: null,
-  addTab: (tab) =>
-    set((s) => ({ tabs: [...s.tabs, tab], activeId: tab.id })),
+  activeTabId: null,
+
+  addTab: (input) => {
+    const leaf = makeLeaf(input);
+    const tab = tabFromLeaf(leaf);
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    return tab.id;
+  },
+
   removeTab: (id) =>
     set((s) => {
       const tabs = s.tabs.filter((t) => t.id !== id);
-      const activeId =
-        s.activeId === id ? tabs[tabs.length - 1]?.id ?? null : s.activeId;
-      return { tabs, activeId };
+      const activeTabId =
+        s.activeTabId === id
+          ? tabs[tabs.length - 1]?.id ?? null
+          : s.activeTabId;
+      return { tabs, activeTabId };
     }),
-  setActive: (id) => set({ activeId: id }),
-  updateTab: (id, patch) =>
+
+  setActiveTab: (id) => set({ activeTabId: id }),
+
+  setActiveLeaf: (tabId, leafId) =>
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      tabs: s.tabs.map((t) =>
+        t.id === tabId ? { ...t, activeLeafId: leafId } : t,
+      ),
     })),
+
+  updateLeaf: (tabId, leafId, patch) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId) return t;
+        const walk = (p: Pane): Pane => {
+          if (p.kind === "leaf")
+            return p.id === leafId ? { ...p, ...patch } : p;
+          return { ...p, children: p.children.map(walk) };
+        };
+        return { ...t, root: walk(t.root) };
+      }),
+    })),
+
+  splitActive: (tabId, direction) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId) return t;
+        const activeLeaves = collectLeaves(t.root);
+        const active =
+          activeLeaves.find((l) => l.id === t.activeLeafId) ??
+          activeLeaves[0];
+        if (!active) return t;
+        const newLeaf: Leaf = makeLeaf({
+          title: "shell",
+          cwd: active.cwd,
+          shell: "shell",
+        });
+        const { root, newLeafId } = splitLeaf(
+          t.root,
+          active.id,
+          direction,
+          newLeaf,
+        );
+        return { ...t, root, activeLeafId: newLeafId };
+      }),
+    })),
+
+  closeLeaf: (tabId, leafId) =>
+    set((s) => {
+      const tabs: Tab[] = [];
+      let newActiveTabId = s.activeTabId;
+      for (const t of s.tabs) {
+        if (t.id !== tabId) {
+          tabs.push(t);
+          continue;
+        }
+        const next = removeLeafFromTree(t.root, leafId);
+        if (!next) {
+          if (newActiveTabId === tabId) newActiveTabId = null;
+          continue;
+        }
+        const activeLeafId = firstLeaf(next).id;
+        tabs.push({ ...t, root: next, activeLeafId });
+      }
+      if (!newActiveTabId && tabs.length > 0) {
+        newActiveTabId = tabs[tabs.length - 1].id;
+      }
+      return { tabs, activeTabId: newActiveTabId };
+    }),
+
+  setRatios: (tabId, splitId, ratios) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id !== tabId ? t : { ...t, root: updateRatios(t.root, splitId, ratios) },
+      ),
+    })),
+
+  focusLeafDelta: (tabId, delta) => {
+    const t = get().tabs.find((x) => x.id === tabId);
+    if (!t) return;
+    const leaves = collectLeaves(t.root);
+    if (leaves.length <= 1) return;
+    const idx = leaves.findIndex((l) => l.id === t.activeLeafId);
+    const next = leaves[(idx + delta + leaves.length) % leaves.length];
+    set((s) => ({
+      tabs: s.tabs.map((x) =>
+        x.id === tabId ? { ...x, activeLeafId: next.id } : x,
+      ),
+    }));
+  },
+
+  renameLeaf: (tabId, leafId, title) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId) return t;
+        const walk = (p: Pane): Pane => {
+          if (p.kind === "leaf")
+            return p.id === leafId ? { ...p, title: trimmed } : p;
+          return { ...p, children: p.children.map(walk) };
+        };
+        return { ...t, root: walk(t.root) };
+      }),
+    }));
+  },
 }));

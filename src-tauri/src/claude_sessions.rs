@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -305,6 +306,190 @@ fn uuid_v4_like() -> String {
         &hex[18..20],
         &hex[20..32],
     )
+}
+
+// ──────────────────────────────────────────────────────────────
+// Token usage / cost
+// ──────────────────────────────────────────────────────────────
+
+struct Pricing {
+    input: f64,
+    output: f64,
+    cache_write: f64,
+    cache_read: f64,
+}
+
+// USD per 1M tokens. Fallback: if model name matches neither opus/haiku,
+// assume Sonnet-tier pricing (most common).
+fn pricing_for_model(model: &str) -> Pricing {
+    let m = model.to_lowercase();
+    if m.contains("opus") {
+        Pricing { input: 15.0, output: 75.0, cache_write: 18.75, cache_read: 1.5 }
+    } else if m.contains("haiku") {
+        if m.contains("haiku-3-5") || m.contains("haiku-3.5") {
+            Pricing { input: 0.8, output: 4.0, cache_write: 1.0, cache_read: 0.08 }
+        } else if m.contains("haiku-3") && !m.contains("haiku-3-5") {
+            Pricing { input: 0.25, output: 1.25, cache_write: 0.30, cache_read: 0.03 }
+        } else {
+            Pricing { input: 1.0, output: 5.0, cache_write: 1.25, cache_read: 0.1 }
+        }
+    } else {
+        Pricing { input: 3.0, output: 15.0, cache_write: 3.75, cache_read: 0.3 }
+    }
+}
+
+#[derive(Serialize, Default, Clone)]
+pub struct UsageByModel {
+    pub model: String,
+    pub input: u64,
+    pub output: u64,
+    pub cache_write: u64,
+    pub cache_read: u64,
+    pub cost_usd: f64,
+    pub messages: u64,
+}
+
+#[derive(Serialize, Default)]
+pub struct SessionUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_write: u64,
+    pub cache_read: u64,
+    pub cost_usd: f64,
+    pub messages: u64,
+    pub by_model: Vec<UsageByModel>,
+}
+
+fn compute_usage_from_path(path: &PathBuf) -> Result<SessionUsage, String> {
+    let f = fs::File::open(path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(f);
+    let mut totals = SessionUsage::default();
+    let mut per_model: std::collections::HashMap<String, UsageByModel> =
+        std::collections::HashMap::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for line in reader.lines().flatten() {
+        let v: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let Some(msg) = v.get("message") else { continue };
+        let Some(usage) = msg.get("usage") else { continue };
+
+        let msg_id = msg
+            .get("id")
+            .and_then(|i| i.as_str())
+            .unwrap_or("")
+            .to_string();
+        let req_id = v
+            .get("requestId")
+            .and_then(|i| i.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !msg_id.is_empty() {
+            let key = if req_id.is_empty() { msg_id.clone() } else { format!("{}|{}", msg_id, req_id) };
+            if !seen.insert(key) {
+                continue;
+            }
+        }
+
+        let model = msg
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let input = usage.get("input_tokens").and_then(|n| n.as_u64()).unwrap_or(0);
+        let output = usage.get("output_tokens").and_then(|n| n.as_u64()).unwrap_or(0);
+        let cache_write = usage
+            .get("cache_creation_input_tokens")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
+        let cache_read = usage
+            .get("cache_read_input_tokens")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
+
+        if input == 0 && output == 0 && cache_write == 0 && cache_read == 0 {
+            continue;
+        }
+
+        let p = pricing_for_model(&model);
+        let cost = (input as f64) / 1_000_000.0 * p.input
+            + (output as f64) / 1_000_000.0 * p.output
+            + (cache_write as f64) / 1_000_000.0 * p.cache_write
+            + (cache_read as f64) / 1_000_000.0 * p.cache_read;
+
+        let entry = per_model.entry(model.clone()).or_insert_with(|| UsageByModel {
+            model: model.clone(),
+            ..Default::default()
+        });
+        entry.input += input;
+        entry.output += output;
+        entry.cache_write += cache_write;
+        entry.cache_read += cache_read;
+        entry.cost_usd += cost;
+        entry.messages += 1;
+
+        totals.input += input;
+        totals.output += output;
+        totals.cache_write += cache_write;
+        totals.cache_read += cache_read;
+        totals.cost_usd += cost;
+        totals.messages += 1;
+    }
+
+    let mut list: Vec<UsageByModel> = per_model.into_values().collect();
+    list.sort_by(|a, b| b.cost_usd.partial_cmp(&a.cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+    totals.by_model = list;
+    Ok(totals)
+}
+
+#[tauri::command]
+pub fn get_session_usage(file: String) -> Result<SessionUsage, String> {
+    let path = PathBuf::from(&file);
+    compute_usage_from_path(&path)
+}
+
+#[derive(Serialize)]
+pub struct SessionCostEntry {
+    pub session_id: String,
+    pub cost_usd: f64,
+    pub total_tokens: u64,
+}
+
+#[tauri::command]
+pub fn get_project_usage(path: String) -> Result<Vec<SessionCostEntry>, String> {
+    let dir = PathBuf::from(&path);
+    let base = claude_projects_dir().ok_or("no home dir")?;
+    if !dir.starts_with(&base) {
+        return Err("refusing: path outside ~/.claude/projects".into());
+    }
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for f in rd.flatten() {
+            let fp = f.path();
+            if fp.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let id = fp
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                continue;
+            }
+            if let Ok(u) = compute_usage_from_path(&fp) {
+                let total = u.input + u.output + u.cache_write + u.cache_read;
+                out.push(SessionCostEntry {
+                    session_id: id,
+                    cost_usd: u.cost_usd,
+                    total_tokens: total,
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]

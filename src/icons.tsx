@@ -123,4 +123,36 @@ export const Icon = {
         <line x1="15" y1="4" x2="15" y2="20" />
       </>,
     ),
+  SplitRight: (p: P) =>
+    svg(
+      p,
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <line x1="12" y1="4" x2="12" y2="20" />
+      </>,
+    ),
+  SplitDown: (p: P) =>
+    svg(
+      p,
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+      </>,
+    ),
+  Edit: (p: P) =>
+    svg(
+      p,
+      <>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+      </>,
+    ),
+  Copy: (p: P) =>
+    svg(
+      p,
+      <>
+        <rect x="9" y="9" width="13" height="13" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </>,
+    ),
 };

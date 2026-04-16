@@ -63,10 +63,9 @@ export function SessionTimeline() {
 
   const resume = () => {
     addTab({
-      id: crypto.randomUUID(),
       title: `claude:${preview.sessionId.slice(0, 6)}`,
       cwd: preview.cwd,
-      kind: "claude",
+      shell: "claude",
       sessionId: preview.sessionId,
     });
     setPreview(null);
@@ -79,10 +78,9 @@ export function SessionTimeline() {
         { file: preview.file, uptoUuid: uuid },
       );
       addTab({
-        id: crypto.randomUUID(),
         title: `fork:${res.session_id.slice(0, 6)}`,
         cwd: preview.cwd,
-        kind: "claude",
+        shell: "claude",
         sessionId: res.session_id,
       });
       setPreview(null);
