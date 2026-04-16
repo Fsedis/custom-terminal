@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTabs, useSidePanel } from "./store";
+import { Icon } from "./icons";
 import "./SessionSidePanel.css";
 
 type SessionEvent = {
@@ -232,18 +233,19 @@ export function SessionSidePanel() {
                       <span className="ssp-ts">
                         {formatTime(ev.timestamp)}
                       </span>
+                      <button
+                        className="ssp-fork-chip"
+                        onClick={() => forkFrom(ev.uuid)}
+                        disabled={busy}
+                        title="Fork a new session from this event"
+                      >
+                        <Icon.Fork size={10} />
+                        <span>fork</span>
+                      </button>
                     </div>
                     <div className="ssp-preview">
                       {ev.preview || <span className="ssp-dim">(empty)</span>}
                     </div>
-                    <button
-                      className="ssp-fork-btn"
-                      onClick={() => forkFrom(ev.uuid)}
-                      disabled={busy}
-                      title="Create new session from this point"
-                    >
-                      ⑂ fork from here
-                    </button>
                   </div>
                 </div>
               );

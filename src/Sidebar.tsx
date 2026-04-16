@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useConfirm, usePreview, useSidebar, useTabs } from "./store";
+import {
+  useConfirm,
+  usePreview,
+  useSidebar,
+  useTabs,
+  useToasts,
+} from "./store";
+import { Icon } from "./icons";
+import { relativeTime, shortBasename, timeBucket } from "./utils";
 
 type ClaudeSession = {
   id: string;
@@ -21,34 +29,37 @@ function decodeProjectPath(name: string): string {
   return name;
 }
 
-function shortName(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
-
 export function Sidebar() {
   const [projects, setProjects] = useState<ClaudeProject[]>([]);
+  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [query, setQuery] = useState("");
+
   const addTab = useTabs((s) => s.addTab);
+  const tabs = useTabs((s) => s.tabs);
   const setPreview = usePreview((s) => s.setPreview);
   const collapsed = useSidebar((s) => s.collapsed);
   const toggleCollapsed = useSidebar((s) => s.toggle);
   const askConfirm = useConfirm((s) => s.ask);
+  const pushToast = useToasts((s) => s.push);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
+    setLoading(true);
     invoke<ClaudeProject[]>("list_claude_projects")
-      .then(setProjects)
-      .catch(() => setProjects([]));
+      .then((p) => setProjects(p))
+      .catch(() => setProjects([]))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
-  const openShell = (cwd: string) => {
+  const openShell = (cwd?: string) => {
     addTab({
       id: crypto.randomUUID(),
-      title: shortName(cwd),
+      title: cwd ? shortBasename(cwd) : "shell",
       cwd,
       kind: "shell",
     });
@@ -86,162 +97,239 @@ export function Sidebar() {
     if (!ok) return;
     try {
       await invoke("delete_claude_session", { file: s.file });
+      pushToast({ kind: "success", text: "Session deleted" });
       reload();
     } catch (e) {
-      await askConfirm({
-        title: "Failed to delete",
-        message: String(e),
-        confirmLabel: "OK",
-      });
+      pushToast({ kind: "error", text: `Failed: ${e}` });
     }
   };
 
   const deleteProject = async (p: ClaudeProject, cwd: string) => {
     const ok = await askConfirm({
       title: "Delete project?",
-      message: `${shortName(cwd)}\n\nAll ${p.sessions.length} session(s) will be removed. This cannot be undone.`,
+      message: `${shortBasename(cwd)}\n\nAll ${p.sessions.length} session(s) will be removed.\nThis cannot be undone.`,
       confirmLabel: "Delete all",
       danger: true,
     });
     if (!ok) return;
     try {
       await invoke("delete_claude_project", { path: p.path });
+      pushToast({ kind: "success", text: `Deleted ${shortBasename(cwd)}` });
       reload();
     } catch (e) {
-      await askConfirm({
-        title: "Failed to delete",
-        message: String(e),
-        confirmLabel: "OK",
-      });
+      pushToast({ kind: "error", text: `Failed: ${e}` });
     }
   };
 
+  const activeSessionIds = useMemo(
+    () => new Set(tabs.filter((t) => t.sessionId).map((t) => t.sessionId!)),
+    [tabs],
+  );
+
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return projects;
+    return projects
+      .map((p) => {
+        const cwd = decodeProjectPath(p.name);
+        const projMatch = cwd.toLowerCase().includes(q);
+        const sessions = p.sessions.filter((s) =>
+          projMatch
+            ? true
+            : (s.first_message ?? "").toLowerCase().includes(q) ||
+              s.id.toLowerCase().includes(q),
+        );
+        if (projMatch || sessions.length > 0) {
+          return { ...p, sessions };
+        }
+        return null;
+      })
+      .filter((p): p is ClaudeProject => p !== null);
+  }, [projects, query]);
+
+  useEffect(() => {
+    if (query) {
+      const map: Record<string, boolean> = {};
+      filteredProjects.forEach((p) => (map[p.name] = true));
+      setExpanded(map);
+    }
+  }, [query, filteredProjects]);
+
   if (collapsed) {
     return (
-      <div className="sidebar-collapsed">
+      <div className="sb-collapsed">
         <button
-          className="sidebar-collapse-btn"
+          className="sb-collapse-btn"
           onClick={toggleCollapsed}
-          title="Show projects"
+          title="Show projects (⌘B)"
         >
-          ›
+          <Icon.Chevron size={12} />
         </button>
       </div>
     );
   }
 
+  const totalSessions = projects.reduce((a, p) => a + p.sessions.length, 0);
+
   return (
-    <div style={styles.sidebar}>
-      <div style={styles.header}>
-        <span style={styles.headerTitle}>Projects</span>
-        <div style={styles.headerActions}>
-          <button
-            style={styles.newBtn}
-            onClick={() =>
-              addTab({
-                id: crypto.randomUUID(),
-                title: "shell",
-                kind: "shell",
-              })
-            }
-          >
-            + shell
-          </button>
-          <button
-            style={styles.collapseBtn}
-            onClick={toggleCollapsed}
-            title="Hide sidebar"
-          >
-            ‹
-          </button>
+    <div className="sb">
+      <div className="sb-header">
+        <div className="sb-header-row">
+          <div className="sb-title">
+            <Icon.Folder size={13} />
+            <span>Projects</span>
+            {totalSessions > 0 && (
+              <span className="sb-count">{totalSessions}</span>
+            )}
+          </div>
+          <div className="sb-header-actions">
+            <button
+              className="sb-icon-btn"
+              onClick={() => openShell()}
+              title="New shell (⌘T)"
+            >
+              <Icon.Plus size={13} />
+            </button>
+            <button
+              className="sb-icon-btn"
+              onClick={toggleCollapsed}
+              title="Hide sidebar (⌘B)"
+            >
+              <Icon.ChevronLeft size={13} />
+            </button>
+          </div>
+        </div>
+        <div className="sb-search">
+          <Icon.Search size={12} />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search sessions…"
+            spellCheck={false}
+          />
+          {query && (
+            <button
+              className="sb-search-clear"
+              onClick={() => setQuery("")}
+              title="Clear"
+            >
+              <Icon.Close size={11} />
+            </button>
+          )}
         </div>
       </div>
-      <div style={styles.list}>
-        {projects.length === 0 && (
-          <div style={styles.empty}>no ~/.claude/projects</div>
+
+      <div className="sb-list thin-scroll">
+        {loading && projects.length === 0 && (
+          <div className="sb-skel">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="sb-skel-row" />
+            ))}
+          </div>
         )}
-        {projects.map((p) => {
+        {!loading && filteredProjects.length === 0 && (
+          <div className="sb-empty">
+            {query ? (
+              <>no matches for “{query}”</>
+            ) : (
+              <>no Claude projects yet</>
+            )}
+          </div>
+        )}
+
+        {filteredProjects.map((p) => {
           const cwd = decodeProjectPath(p.name);
           const isOpen = expanded[p.name] ?? false;
+          const top = p.sessions[0];
+          const bucket = top ? timeBucket(top.mtime) : "Older";
           return (
-            <div key={p.name} className="sb-project" style={styles.project}>
+            <div
+              key={p.name}
+              className={`sb-project${isOpen ? " open" : ""}`}
+            >
               <div
-                style={styles.projectHeader}
+                className="sb-project-header"
                 onClick={() =>
                   setExpanded((s) => ({ ...s, [p.name]: !isOpen }))
                 }
+                title={cwd}
               >
-                <span style={styles.chev}>{isOpen ? "▾" : "▸"}</span>
-                <span style={styles.projectName} title={cwd}>
-                  {shortName(cwd)}
+                <span className="sb-chev">
+                  <Icon.Chevron size={11} />
                 </span>
-                <span
-                  className="sb-hover-btn"
-                  style={styles.iconBtn}
+                <span className="sb-project-name">{shortBasename(cwd)}</span>
+                <span className="sb-bucket">{bucket}</span>
+                <span className="sb-proj-count">{p.sessions.length}</span>
+                <button
+                  className="sb-hover-btn sb-ghost"
+                  title="New shell here"
                   onClick={(e) => {
                     e.stopPropagation();
                     openShell(cwd);
                   }}
-                  title="new shell here"
                 >
-                  +
-                </span>
-                <span
-                  className="sb-hover-btn sb-del"
-                  style={styles.iconBtn}
+                  <Icon.Plus size={11} />
+                </button>
+                <button
+                  className="sb-hover-btn sb-danger"
+                  title="Delete project"
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteProject(p, cwd);
                   }}
-                  title="delete project"
                 >
-                  ×
-                </span>
+                  <Icon.Trash size={11} />
+                </button>
               </div>
               {isOpen && (
-                <div style={styles.sessions}>
-                  {p.sessions.slice(0, 20).map((s) => (
-                    <div
-                      key={s.id}
-                      className="sb-session"
-                      style={styles.session}
-                      title={s.first_message ?? s.id}
-                      onClick={() => previewSession(s, cwd)}
-                      onDoubleClick={() =>
-                        openClaudeSession(s.cwd ?? cwd, s.id)
-                      }
-                    >
-                      <span style={styles.sessionText}>
-                        {s.first_message
-                          ? s.first_message.slice(0, 40)
-                          : s.id.slice(0, 8)}
-                      </span>
-                      <span
-                        className="sb-hover-btn"
-                        style={styles.sessionIcon}
-                        title="resume in new tab"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openClaudeSession(s.cwd ?? cwd, s.id);
-                        }}
+                <div className="sb-sessions">
+                  {p.sessions.slice(0, 40).map((s) => {
+                    const active = activeSessionIds.has(s.id);
+                    return (
+                      <div
+                        key={s.id}
+                        className={`sb-session${active ? " active" : ""}`}
+                        title={s.first_message ?? s.id}
+                        onClick={() => previewSession(s, cwd)}
+                        onDoubleClick={() =>
+                          openClaudeSession(s.cwd ?? cwd, s.id)
+                        }
                       >
-                        ▶
-                      </span>
-                      <span
-                        className="sb-hover-btn sb-del"
-                        style={styles.sessionIcon}
-                        title="delete session"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteSession(s);
-                        }}
-                      >
-                        ×
-                      </span>
-                    </div>
-                  ))}
+                        <span className="sb-session-dot" />
+                        <span className="sb-session-text">
+                          {s.first_message
+                            ? s.first_message.slice(0, 60)
+                            : s.id.slice(0, 8)}
+                        </span>
+                        <span className="sb-session-time">
+                          {relativeTime(s.mtime)}
+                        </span>
+                        <button
+                          className="sb-hover-btn sb-ghost"
+                          title="Resume in new tab"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openClaudeSession(s.cwd ?? cwd, s.id);
+                          }}
+                        >
+                          <Icon.Play size={10} />
+                        </button>
+                        <button
+                          className="sb-hover-btn sb-danger"
+                          title="Delete session"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSession(s);
+                          }}
+                        >
+                          <Icon.Trash size={11} />
+                        </button>
+                      </div>
+                    );
+                  })}
                   {p.sessions.length === 0 && (
-                    <div style={styles.empty}>no sessions</div>
+                    <div className="sb-empty sb-empty-sm">no sessions</div>
                   )}
                 </div>
               )}
@@ -252,98 +340,3 @@ export function Sidebar() {
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  sidebar: {
-    width: 240,
-    background: "#141414",
-    color: "#ddd",
-    display: "flex",
-    flexDirection: "column",
-    fontSize: 12,
-    borderRight: "1px solid #2a2a2a",
-    height: "100%",
-    flexShrink: 0,
-  },
-  header: {
-    padding: "8px 10px",
-    fontWeight: 600,
-    borderBottom: "1px solid #2a2a2a",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 6,
-  },
-  headerTitle: { flex: 1 },
-  headerActions: { display: "flex", gap: 4, alignItems: "center" },
-  newBtn: {
-    background: "#2a2a2a",
-    color: "#ddd",
-    border: "none",
-    padding: "2px 6px",
-    borderRadius: 3,
-    cursor: "pointer",
-    fontSize: 11,
-  },
-  collapseBtn: {
-    background: "transparent",
-    color: "#888",
-    border: "1px solid #2a2a2a",
-    borderRadius: 3,
-    width: 20,
-    height: 20,
-    cursor: "pointer",
-    fontSize: 13,
-    lineHeight: 1,
-    padding: 0,
-  },
-  list: { overflowY: "auto", flex: 1 },
-  empty: { padding: 10, color: "#666", fontSize: 11 },
-  project: { borderBottom: "1px solid #202020" },
-  projectHeader: {
-    padding: "5px 8px",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    userSelect: "none",
-  },
-  chev: { width: 12, color: "#777" },
-  projectName: {
-    flex: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  iconBtn: {
-    color: "#777",
-    padding: "0 5px",
-    cursor: "pointer",
-    fontSize: 13,
-    lineHeight: 1,
-    borderRadius: 3,
-  },
-  sessions: { paddingLeft: 20, paddingBottom: 4 },
-  session: {
-    padding: "3px 8px",
-    cursor: "pointer",
-    color: "#aaa",
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-  },
-  sessionText: {
-    flex: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  sessionIcon: {
-    color: "#666",
-    padding: "0 5px",
-    fontSize: 11,
-    cursor: "pointer",
-    lineHeight: 1,
-    borderRadius: 3,
-  },
-};

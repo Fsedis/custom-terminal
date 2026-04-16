@@ -88,6 +88,65 @@ export const useConfirm = create<ConfirmState>((set, get) => ({
   },
 }));
 
+export type Toast = {
+  id: string;
+  kind: "info" | "success" | "error";
+  text: string;
+};
+
+type ToastState = {
+  toasts: Toast[];
+  push: (t: Omit<Toast, "id">) => void;
+  dismiss: (id: string) => void;
+};
+
+export const useToasts = create<ToastState>((set) => ({
+  toasts: [],
+  push: (t) => {
+    const id = crypto.randomUUID();
+    set((s) => ({ toasts: [...s.toasts, { ...t, id }] }));
+    setTimeout(() => {
+      set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) }));
+    }, 3600);
+  },
+  dismiss: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+}));
+
+// Persist UI prefs in localStorage without a middleware
+const LS_KEY = "ct.ui.v1";
+type Persisted = { sidebarCollapsed?: boolean; sidePanelOpen?: boolean };
+function loadPersisted(): Persisted {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+function savePersisted(p: Persisted) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(p));
+  } catch {}
+}
+
+const persisted = loadPersisted();
+
+useSidebar.setState({ collapsed: persisted.sidebarCollapsed ?? false });
+useSidePanel.setState({ open: persisted.sidePanelOpen ?? true });
+
+useSidebar.subscribe((s) =>
+  savePersisted({
+    ...loadPersisted(),
+    sidebarCollapsed: s.collapsed,
+  }),
+);
+useSidePanel.subscribe((s) =>
+  savePersisted({
+    ...loadPersisted(),
+    sidePanelOpen: s.open,
+  }),
+);
+
 type TabsState = {
   tabs: Tab[];
   activeId: string | null;

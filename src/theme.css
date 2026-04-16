@@ -1,0 +1,121 @@
+:root {
+  /* ── Surfaces ── */
+  --bg-0: #0a0b0d;
+  --bg-1: #101114;
+  --bg-2: #15171b;
+  --bg-3: #1c1f25;
+  --bg-4: #242830;
+  --bg-hover: #1a1d23;
+  --bg-active: #242830;
+
+  /* ── Borders ── */
+  --border-subtle: #1f2127;
+  --border: #2a2d35;
+  --border-strong: #353840;
+
+  /* ── Text ── */
+  --text-0: #f5f6f8;
+  --text-1: #dcdee3;
+  --text-2: #9aa0aa;
+  --text-3: #6b7280;
+  --text-4: #4b515c;
+
+  /* ── Accents ── */
+  --accent: #4a7fe6;
+  --accent-bg: #3b6fd6;
+  --accent-weak: #4a7fe622;
+  --accent-glow: #4a7fe644;
+
+  --success: #4ade80;
+  --success-glow: #4ade8088;
+
+  --user: #6aa8ff;
+  --user-weak: #6aa8ff22;
+  --assistant: #b88bff;
+  --assistant-weak: #b88bff22;
+
+  --warning: #ffb86b;
+  --warning-weak: #ffb86b22;
+
+  --danger: #f87171;
+  --danger-bg: #a03a3a;
+  --danger-strong: #c04848;
+  --danger-weak: #f8717122;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+  /* ── Radius ── */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+
+  /* ── Typography ── */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-lg: 13px;
+  --fs-xl: 14px;
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fast: 120ms;
+  --t-med: 180ms;
+  --t-slow: 260ms;
+
+  /* ── Layout ── */
+  --sidebar-w: 240px;
+  --sidebar-collapsed-w: 20px;
+  --rail-w: 38px;
+  --titlebar-h: 28px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--accent-weak);
+  color: var(--text-0);
+}
+
+/* Custom scrollbar across panels */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.thin-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.thin-scroll::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
