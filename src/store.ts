@@ -152,9 +152,14 @@ export const useToasts = create<ToastState>((set) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
 
-// Persist UI prefs in localStorage without a middleware
+// Persist UI prefs + workspace in localStorage without a middleware
 const LS_KEY = "ct.ui.v1";
-type Persisted = { sidebarCollapsed?: boolean; sidePanelOpen?: boolean };
+const LS_WORKSPACE_KEY = "ct.workspace.v1";
+type Persisted = {
+  sidebarCollapsed?: boolean;
+  sidePanelOpen?: boolean;
+  activeModule?: ModuleId;
+};
 function loadPersisted(): Persisted {
   try {
     return JSON.parse(localStorage.getItem(LS_KEY) || "{}");
@@ -168,10 +173,53 @@ function savePersisted(p: Persisted) {
   } catch {}
 }
 
+function stripPty(p: Pane): Pane {
+  if (p.kind === "leaf") {
+    const { ptyId: _drop, ...rest } = p;
+    return rest as Pane;
+  }
+  return { ...p, children: p.children.map(stripPty) };
+}
+
+type Workspace = { tabs: Tab[]; activeTabId: string | null };
+function loadWorkspace(): Workspace | null {
+  try {
+    const raw = localStorage.getItem(LS_WORKSPACE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Workspace;
+    if (!Array.isArray(parsed.tabs)) return null;
+    parsed.tabs = parsed.tabs
+      .filter((t) => t && t.id && t.root)
+      .map((t) => ({ ...t, root: stripPty(t.root) }));
+    if (parsed.tabs.length === 0) return null;
+    const activeExists = parsed.tabs.some((t) => t.id === parsed.activeTabId);
+    if (!activeExists) parsed.activeTabId = parsed.tabs[parsed.tabs.length - 1].id;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function saveWorkspace(ws: Workspace) {
+  try {
+    const clean: Workspace = {
+      activeTabId: ws.activeTabId,
+      tabs: ws.tabs.map((t) => ({ ...t, root: stripPty(t.root) })),
+    };
+    localStorage.setItem(LS_WORKSPACE_KEY, JSON.stringify(clean));
+  } catch {}
+}
+
 const persisted = loadPersisted();
 
 useSidebar.setState({ collapsed: persisted.sidebarCollapsed ?? false });
 useSidePanel.setState({ open: persisted.sidePanelOpen ?? true });
+if (persisted.activeModule) {
+  useModule.setState({ activeModule: persisted.activeModule });
+}
+
+useModule.subscribe((s) =>
+  savePersisted({ ...loadPersisted(), activeModule: s.activeModule }),
+);
 
 useSidebar.subscribe((s) =>
   savePersisted({
@@ -332,3 +380,21 @@ export const useTabs = create<TabsState>((set, get) => ({
     }));
   },
 }));
+
+// ── Workspace persistence ──
+const restored = loadWorkspace();
+if (restored) {
+  useTabs.setState({
+    tabs: restored.tabs,
+    activeTabId: restored.activeTabId,
+  });
+}
+
+let saveTimer: number | null = null;
+useTabs.subscribe((s) => {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null;
+    saveWorkspace({ tabs: s.tabs, activeTabId: s.activeTabId });
+  }, 250);
+});
