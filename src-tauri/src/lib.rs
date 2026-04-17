@@ -24,6 +24,7 @@ pub fn run() {
             claude_sessions::delete_claude_project,
             claude_sessions::get_session_usage,
             claude_sessions::get_project_usage,
+            claude_sessions::list_claude_skills,
             browser::browser_create,
             browser::browser_navigate,
             browser::browser_resize,

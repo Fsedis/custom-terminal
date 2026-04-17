@@ -444,6 +444,99 @@ fn compute_usage_from_path(path: &PathBuf) -> Result<SessionUsage, String> {
     Ok(totals)
 }
 
+// ──────────────────────────────────────────────────────────────
+// Skills / slash commands
+// ──────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct ClaudeSkill {
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: String, // "command" | "skill"
+}
+
+fn parse_frontmatter_description(content: &str) -> Option<String> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let rest = &trimmed[3..];
+    let end = rest.find("\n---")?;
+    let block = &rest[..end];
+    for line in block.lines() {
+        let l = line.trim();
+        if let Some(v) = l.strip_prefix("description:") {
+            let v = v.trim().trim_matches('"').trim_matches('\'');
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+pub fn list_claude_skills() -> Result<Vec<ClaudeSkill>, String> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    let mut out: Vec<ClaudeSkill> = Vec::new();
+
+    // ~/.claude/commands/*.md
+    let cmds = home.join(".claude").join("commands");
+    if cmds.is_dir() {
+        if let Ok(rd) = fs::read_dir(&cmds) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) != Some("md") {
+                    continue;
+                }
+                let name = match p.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let description = fs::read_to_string(&p)
+                    .ok()
+                    .as_deref()
+                    .and_then(parse_frontmatter_description);
+                out.push(ClaudeSkill {
+                    name,
+                    description,
+                    kind: "command".into(),
+                });
+            }
+        }
+    }
+
+    // ~/.claude/skills/<name>/SKILL.md
+    let skills = home.join(".claude").join("skills");
+    if skills.is_dir() {
+        if let Ok(rd) = fs::read_dir(&skills) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                let name = match p.file_name().and_then(|s| s.to_str()) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let skill_md = p.join("SKILL.md");
+                let description = fs::read_to_string(&skill_md)
+                    .ok()
+                    .as_deref()
+                    .and_then(parse_frontmatter_description);
+                out.push(ClaudeSkill {
+                    name,
+                    description,
+                    kind: "skill".into(),
+                });
+            }
+        }
+    }
+
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn get_session_usage(file: String) -> Result<SessionUsage, String> {
     let path = PathBuf::from(&file);

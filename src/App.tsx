@@ -9,7 +9,15 @@ import { SessionSidePanel } from "./SessionSidePanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Toasts } from "./Toasts";
 import { ContextMenu } from "./ContextMenu";
-import { useTabs, useModule, useSidebar, useSidePanel, useToasts } from "./store";
+import { CommandPalette } from "./CommandPalette";
+import {
+  useTabs,
+  useModule,
+  useSidebar,
+  useSidePanel,
+  useToasts,
+  usePalette,
+} from "./store";
 import { Icon } from "./icons";
 import { Pane } from "./panes";
 import { MIN_PANE_H, MIN_PANE_W } from "./PaneNode";
@@ -75,6 +83,7 @@ function App() {
   const toggleSidebar = useSidebar((s) => s.toggle);
   const toggleSidePanel = useSidePanel((s) => s.toggle);
   const pushToast = useToasts((s) => s.push);
+  const togglePalette = usePalette((s) => s.toggle);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
@@ -98,6 +107,12 @@ function App() {
           target.tagName === "TEXTAREA" ||
           target.isContentEditable);
 
+      // ⌘K command palette
+      if (e.key.toLowerCase() === "k" && !e.shiftKey) {
+        e.preventDefault();
+        togglePalette();
+        return;
+      }
       // ⌘T new shell
       if (e.key.toLowerCase() === "t" && !e.shiftKey && !isInput) {
         e.preventDefault();
@@ -192,6 +207,7 @@ function App() {
     closeLeaf,
     focusLeafDelta,
     pushToast,
+    togglePalette,
   ]);
 
   return (
@@ -235,6 +251,7 @@ function App() {
       <ConfirmDialog />
       <Toasts />
       <ContextMenu />
+      <CommandPalette />
     </div>
   );
 }
